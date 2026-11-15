@@ -1,0 +1,23 @@
+{
+  "name": "vid",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marcelomouraabade2-web/Vid.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/marcelomouraabade2-web/Vid/issues"
+  },
+  "homepage": "https://github.com/marcelomouraabade2-web/Vid#readme",
+  "dependencies": {
+    "three": "^0.160.0"
+  }
+}
