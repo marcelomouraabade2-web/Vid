@@ -8,10 +8,11 @@ import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
-const TL = JSON.parse(readFileSync('build/timeline.json', 'utf8'));
+const TLF = arg('--timeline', 'build/timeline.json'); const TL = JSON.parse(readFileSync(TLF, 'utf8'));
+const PAGE = arg('--page', 'src/stage.html'); const VF = arg('--vf', 'eq=saturation=1.16:contrast=1.06,vignette=angle=PI/5,noise=alls=4:allf=t'); const MUTE = arg('--mute', 'build/video_mudo.mp4');
 const FPS = +arg('--fps', 24), WORKERS = +arg('--workers', 3), SCALE = +arg('--scale', .6);
 const T0 = +arg('--from', 0), T1 = +arg('--to', TL.total);
-const URL = 'file://' + process.cwd() + '/src/stage.html';
+const URL = 'file://' + process.cwd() + '/' + PAGE;
 async function open() {
   const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--allow-file-access-from-files', '--disable-web-security'] });
   const p = await b.newPage({ viewport: { width: 1080, height: 1920 } });
@@ -34,7 +35,7 @@ const prog = setInterval(() => { const d = done.reduce((a, b) => a + b, 0); cons
 await Promise.all([...Array(WORKERS).keys()].map(async w => {
   const a = f0 + w * per, z = Math.min(f1, a + per); if (a >= z) return;
   const file = `build/chunks/c${String(w).padStart(2, '0')}.mp4`;
-  const ff = spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'mjpeg', '-i', '-', '-vf', 'eq=saturation=1.16:contrast=1.06,vignette=angle=PI/5,noise=alls=4:allf=t', '-c:v', 'libx264', '-preset', 'fast', '-tune', 'grain', '-crf', '28', '-pix_fmt', 'yuv420p', '-r', String(FPS), file], { stdio: ['pipe', 'inherit', 'inherit'] });
+  const ff = spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'mjpeg', '-i', '-', '-vf', VF || 'null', '-c:v', 'libx264', '-preset', 'fast', '-tune', 'grain', '-crf', '28', '-pix_fmt', 'yuv420p', '-r', String(FPS), file], { stdio: ['pipe', 'inherit', 'inherit'] });
   const { b, p } = await open();
   for (let f = a; f < z; f++) {
     const d = await p.evaluate(([t, f]) => window.grab(t, f, .93), [f / FPS, f]);
@@ -47,5 +48,5 @@ await Promise.all([...Array(WORKERS).keys()].map(async w => {
 clearInterval(prog);
 const list = [...Array(WORKERS).keys()].map(w => `build/chunks/c${String(w).padStart(2, '0')}.mp4`).filter(existsSync);
 writeFileSync('build/chunks/list.txt', list.map(f => `file '${f.replace('build/chunks/', '')}'`).join('\n'));
-execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', 'build/chunks/list.txt', '-c', 'copy', 'build/video_mudo.mp4']);
+execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', 'build/chunks/list.txt', '-c', 'copy', MUTE]);
 console.log(`\nVídeo mudo pronto em ${((Date.now() - t0) / 60000).toFixed(1)} min`);
