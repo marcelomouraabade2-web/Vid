@@ -34,7 +34,7 @@ const prog = setInterval(() => { const d = done.reduce((a, b) => a + b, 0); cons
 await Promise.all([...Array(WORKERS).keys()].map(async w => {
   const a = f0 + w * per, z = Math.min(f1, a + per); if (a >= z) return;
   const file = `build/chunks/c${String(w).padStart(2, '0')}.mp4`;
-  const ff = spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'mjpeg', '-i', '-', '-vf', 'eq=saturation=1.16:contrast=1.06,vignette=angle=PI/5,noise=alls=6:allf=t', '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', String(FPS), file], { stdio: ['pipe', 'inherit', 'inherit'] });
+  const ff = spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'mjpeg', '-i', '-', '-vf', 'eq=saturation=1.16:contrast=1.06,vignette=angle=PI/5,noise=alls=4:allf=t', '-c:v', 'libx264', '-preset', 'fast', '-tune', 'grain', '-crf', '28', '-pix_fmt', 'yuv420p', '-r', String(FPS), file], { stdio: ['pipe', 'inherit', 'inherit'] });
   const { b, p } = await open();
   for (let f = a; f < z; f++) {
     const d = await p.evaluate(([t, f]) => window.grab(t, f, .93), [f / FPS, f]);
