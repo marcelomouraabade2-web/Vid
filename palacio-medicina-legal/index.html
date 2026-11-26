@@ -12,6 +12,7 @@
     --destaque: #ffd49a;
     --painel: rgba(14, 16, 20, .88);
     --borda: #3a404b;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--fundo); color: var(--texto);
@@ -3525,10 +3526,14 @@ const entrada = document.getElementById('entrada');
 let travado = false, iniciou = false;
 function iniciar() {
   iniciou = true; entrada.classList.add('oculto');
-  if (!toque && canvas.requestPointerLock) canvas.requestPointerLock();
+  travar();
+}
+function travar() {
+  if (toque || !canvas.requestPointerLock) return;
+  try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {}
 }
 entrada.addEventListener('click', iniciar);
-canvas.addEventListener('click', () => { if (iniciou && !toque && !travado && canvas.requestPointerLock) canvas.requestPointerLock(); });
+canvas.addEventListener('click', () => { if (iniciou && !travado) travar(); });
 document.addEventListener('pointerlockchange', () => { travado = document.pointerLockElement === canvas; });
 document.addEventListener('mousemove', e => {
   if (!travado) return;
