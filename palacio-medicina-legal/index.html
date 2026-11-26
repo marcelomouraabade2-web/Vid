@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Palácio da Memória</title>
+<style>
+  :root {
+    --fundo: #0e1014;
+    --texto: #f2efe8;
+    --texto-suave: #b9b3a6;
+    --destaque: #ffd49a;
+    --painel: rgba(14, 16, 20, .86);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--fundo); color: var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  canvas#cena { display: block; width: 100vw; height: 100vh; touch-action: none; }
+
+  /* Tela de entrada: aparece enquanto o ponteiro está solto */
+  #entrada { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 16px; background: rgba(8, 9, 12, .55); cursor: pointer; z-index: 10; }
+  #entrada.oculto { display: none; }
+  #entrada .caixa { max-width: 520px; width: 100%; background: var(--painel); border: 2px solid var(--destaque);
+    border-radius: 14px; padding: 22px 24px; text-align: center; }
+  #entrada h1 { margin: 0 0 4px; font-size: 22px; color: var(--destaque); }
+  #entrada p { margin: 8px 0; color: var(--texto-suave); font-size: 15px; line-height: 1.45; }
+  #entrada kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border-radius: 5px;
+    background: #22262e; border: 1px solid #3a404b; color: var(--texto); font: 600 13px system-ui; }
+  #entrada .chamada { margin-top: 14px; color: var(--texto); font-weight: 700; }
+
+  /* Mira e contador de quadros */
+  #mira { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+    pointer-events: none; z-index: 5; }
+  #mira::before, #mira::after { content: ""; position: absolute; background: rgba(255,255,255,.8); }
+  #mira::before { left: 6px; top: 0; width: 2px; height: 14px; }
+  #mira::after { top: 6px; left: 0; height: 2px; width: 14px; }
+  #fps { position: fixed; top: 8px; right: 10px; z-index: 5; font: 600 12px ui-monospace, monospace;
+    color: var(--texto-suave); background: rgba(14,16,20,.6); padding: 3px 7px; border-radius: 6px; }
+
+  /* Falha de carregamento do Three.js */
+  #erro { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    padding: 16px; text-align: center; z-index: 20; background: var(--fundo); }
+  #erro .caixa { max-width: 520px; border: 2px solid #cf7070; border-radius: 14px; padding: 22px; }
+  #erro h1 { margin: 0 0 8px; font-size: 20px; color: #ff9a9a; }
+  #erro p { margin: 0; color: var(--texto-suave); line-height: 1.45; }
+</style>
+</head>
+<body>
+<canvas id="cena"></canvas>
+<div id="mira"></div>
+<div id="fps">-- fps</div>
+
+<div id="entrada">
+  <div class="caixa">
+    <h1>Palácio da Memória</h1>
+    <p>Medicina Legal, Bioética e Tanatologia</p>
+    <p><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> ou setas para andar · <kbd>Shift</kbd> corre<br>
+       Mouse para olhar · <kbd>Esc</kbd> solta o cursor</p>
+    <p class="chamada">Clique para entrar</p>
+  </div>
+</div>
+
+<div id="erro"><div class="caixa">
+  <h1>Não foi possível carregar o motor 3D</h1>
+  <p>A biblioteca Three.js não respondeu. Verifique a conexão e recarregue a página.</p>
+</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+'use strict';
+
+// ---------------------------------------------------------------------------
+// 0. Guarda de carregamento
+// ---------------------------------------------------------------------------
+if (typeof THREE === 'undefined') {
+  document.getElementById('erro').style.display = 'flex';
+  document.getElementById('entrada').classList.add('oculto');
+  return;
+}
+
+// ---------------------------------------------------------------------------
+// 1. Parâmetros (seção 8 da especificação)
+// ---------------------------------------------------------------------------
+const CFG = {
+  olhos: 1.62,          // altura dos olhos, m
+  vel: 3.2,             // andando, m/s
+  velCorrida: 5.4,      // com Shift, m/s
+  dtMax: 0.05,          // limite do delta por quadro, s
+  sensib: 0.0022,       // rad por pixel de mouse
+  ceu: 0x9cc7e8,
+  neblina: [30, 110]    // início e fim da neblina, m
+};
+
+// ---------------------------------------------------------------------------
+// 2. Renderizador, cena, câmera
+// ---------------------------------------------------------------------------
+const canvas = document.getElementById('cena');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = false;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(CFG.ceu);
+scene.fog = new THREE.Fog(CFG.ceu, CFG.neblina[0], CFG.neblina[1]);
+
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 200);
+camera.rotation.order = 'YXZ';                 // guinada primeiro, depois arfagem
+camera.position.set(0, CFG.olhos, 0);
+
+// Luz provisória — o orçamento definitivo (hemisfério + direcional + 8 pontuais) é a Etapa 4
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6b6358, 0.66));
+const sol = new THREE.DirectionalLight(0xffffff, 0.22);
+sol.position.set(30, 50, 20);
+scene.add(sol);
+
+// ---------------------------------------------------------------------------
+// 3. Céu (cúpula em degradê) e piso infinito
+// ---------------------------------------------------------------------------
+const cupula = (function ceu() {
+  const c = document.createElement('canvas');
+  c.width = 1; c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 64);
+  g.addColorStop(0, '#4f8fcf');
+  g.addColorStop(0.55, '#9cc7e8');
+  g.addColorStop(1, '#cfe3f1');
+  x.fillStyle = g; x.fillRect(0, 0, 1, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  const cupula = new THREE.Mesh(
+    new THREE.SphereGeometry(150, 16, 12),
+    new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, fog: false, depthWrite: false }));
+  cupula.renderOrder = -1;
+  scene.add(cupula);
+  return cupula;
+})();
+
+// Textura de grama pixelada: ruído por pixel + NearestFilter (seção 4)
+function texturaPiso() {
+  const res = 16, c = document.createElement('canvas');
+  c.width = c.height = res;
+  const x = c.getContext('2d');
+  for (let i = 0; i < res; i++) for (let j = 0; j < res; j++) {
+    const d = (Math.random() - 0.5) * 34;
+    x.fillStyle = `rgb(${(96 + d) | 0},${(138 + d) | 0},${(70 + d) | 0})`;
+    x.fillRect(i, j, 1, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+const TAM_PISO = 240;                          // m; a neblina esconde a borda
+const texPiso = texturaPiso();
+texPiso.repeat.set(TAM_PISO, TAM_PISO);        // 1 repetição por metro = 1 bloco
+const piso = new THREE.Mesh(
+  new THREE.PlaneGeometry(TAM_PISO, TAM_PISO),
+  new THREE.MeshLambertMaterial({ map: texPiso }));
+piso.rotation.x = -Math.PI / 2;
+scene.add(piso);
+
+// Marcos provisórios para dar referência de movimento (removidos na Etapa 3)
+(function marcos() {
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x8a8378 });
+  const pos = [];
+  for (let gx = -4; gx <= 4; gx++) for (let gz = -4; gz <= 4; gz++) {
+    if (gx === 0 && gz === 0) continue;
+    pos.push([gx * 10, gz * 10]);
+  }
+  const m = new THREE.InstancedMesh(geo, mat, pos.length);
+  const mt = new THREE.Matrix4();
+  pos.forEach(([x, z], i) => { mt.makeTranslation(x + 0.5, 0.5, z + 0.5); m.setMatrixAt(i, mt); });
+  scene.add(m);
+})();
+
+// O piso acompanha o jogador em passos inteiros de 1 m, para parecer infinito
+// sem que a textura "escorregue" sob os pés.
+function seguePiso() {
+  piso.position.x = Math.round(camera.position.x);
+  piso.position.z = Math.round(camera.position.z);
+  cupula.position.set(camera.position.x, 0, camera.position.z);
+}
+
+// ---------------------------------------------------------------------------
+// 4. Entrada: teclado + Pointer Lock
+// ---------------------------------------------------------------------------
+const teclas = Object.create(null);
+const MAPA = {
+  KeyW: 'frente', ArrowUp: 'frente',
+  KeyS: 'tras', ArrowDown: 'tras',
+  KeyA: 'esq', ArrowLeft: 'esq',
+  KeyD: 'dir', ArrowRight: 'dir',
+  ShiftLeft: 'corre', ShiftRight: 'corre'
+};
+window.addEventListener('keydown', e => {
+  const a = MAPA[e.code];
+  if (a) { teclas[a] = true; if (e.code.startsWith('Arrow')) e.preventDefault(); }
+});
+window.addEventListener('keyup', e => { const a = MAPA[e.code]; if (a) teclas[a] = false; });
+window.addEventListener('blur', () => { for (const k in teclas) teclas[k] = false; });
+
+const entrada = document.getElementById('entrada');
+let travado = false;
+let guinada = 0, arfagem = 0;
+
+entrada.addEventListener('click', () => {
+  if (canvas.requestPointerLock) canvas.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  travado = document.pointerLockElement === canvas;
+  entrada.classList.toggle('oculto', travado);
+});
+document.addEventListener('mousemove', e => {
+  if (!travado) return;
+  guinada -= e.movementX * CFG.sensib;
+  arfagem -= e.movementY * CFG.sensib;
+  const lim = Math.PI / 2 - 0.01;
+  arfagem = Math.max(-lim, Math.min(lim, arfagem));
+});
+
+// ---------------------------------------------------------------------------
+// 5. Movimento — sem gravidade, sem salto (seção 8)
+// ---------------------------------------------------------------------------
+function move(dt) {
+  let fx = 0, fz = 0;
+  if (teclas.frente) fz -= 1;
+  if (teclas.tras) fz += 1;
+  if (teclas.esq) fx -= 1;
+  if (teclas.dir) fx += 1;
+  if (!fx && !fz) return;
+  const n = Math.hypot(fx, fz);               // diagonal não anda mais rápido
+  fx /= n; fz /= n;
+  const v = (teclas.corre ? CFG.velCorrida : CFG.vel) * dt;
+  const s = Math.sin(guinada), c = Math.cos(guinada);
+  camera.position.x += (fx * c + fz * s) * v;
+  camera.position.z += (-fx * s + fz * c) * v;
+  // Etapa 3: aqui entra empurra(px, pz) contra os segmentos de parede.
+}
+
+// ---------------------------------------------------------------------------
+// 6. Laço principal
+// ---------------------------------------------------------------------------
+const fpsEl = document.getElementById('fps');
+let anterior = performance.now(), acum = 0, quadros = 0;
+
+function quadro(agora) {
+  requestAnimationFrame(quadro);
+  const dtReal = (agora - anterior) / 1000;
+  anterior = agora;
+  const dt = Math.min(dtReal, CFG.dtMax);      // volta de aba em 2º plano não teleporta
+
+  move(dt);
+  camera.rotation.y = guinada;
+  camera.rotation.x = arfagem;
+  camera.position.y = CFG.olhos;
+  seguePiso();
+  renderer.render(scene, camera);
+
+  acum += dtReal; quadros++;
+  if (acum >= 0.5) { fpsEl.textContent = Math.round(quadros / acum) + ' fps'; acum = 0; quadros = 0; }
+}
+requestAnimationFrame(quadro);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Gancho para testes automatizados (harness da seção 10)
+window.__palacio = { camera, scene, renderer, teclas, CFG,
+  olhar(g, a) { guinada = g; arfagem = a; } };
+})();
+</script>
+</body>
+</html>
